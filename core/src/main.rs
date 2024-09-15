@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, fs};
 
 use lexer::Lexer;
 use parser::Parser;

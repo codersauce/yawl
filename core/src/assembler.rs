@@ -134,6 +134,7 @@ impl From<ir::Instruction> for Vec<Instruction> {
                     instructions.push(Instruction::Push(stack_arg.clone()));
                 }
 
+                let name = Identifier(name.0.to_lowercase());
                 instructions.push(Instruction::Call(name));
                 instructions.push(Instruction::Mov(Operand::Reg(Reg::AX), result.into()));
 
