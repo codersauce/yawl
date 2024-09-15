@@ -26,11 +26,9 @@ impl<'a> Lexer<'a> {
 
             for token in Token::iter() {
                 if let Some(re) = token.regex() {
-                    println!("re = {re}");
                     let re = Regex::new(re)?;
                     if let Some(capts) = re.captures(&self.source[self.pos..]) {
                         let matched = capts.get(0).unwrap().as_str();
-                        println!("matched: {matched:?}");
                         let token = match token {
                             Token::Identifier(_) => Token::Identifier(matched.to_string()),
                             Token::Int(_) => Token::Int(matched.parse().unwrap()),
@@ -43,7 +41,6 @@ impl<'a> Lexer<'a> {
                 }
             }
 
-            println!("found: {found}");
             if !found {
                 anyhow::bail!("Unexpected token: {}", &self.source[self.pos..]);
             }
