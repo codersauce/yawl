@@ -1,9 +1,33 @@
+use std::fmt;
+
 use lexer::Lexer;
 use parser::Parser;
 
+mod assembler;
 mod ir;
 mod lexer;
 mod parser;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Identifier(String);
+
+impl From<String> for Identifier {
+    fn from(value: String) -> Self {
+        Identifier(value)
+    }
+}
+
+impl From<&str> for Identifier {
+    fn from(value: &str) -> Self {
+        Identifier(value.to_string())
+    }
+}
+
+impl fmt::Display for Identifier {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 fn main() -> anyhow::Result<()> {
     let program = r#"
@@ -30,12 +54,26 @@ fn main() -> anyhow::Result<()> {
     println!();
 
     let mut ir_generator = ir::IrGenerator::new(program);
-    let instructions = ir_generator.generate()?;
+    let program = ir_generator.generate()?;
 
     println!("IR:");
-    for instruction in instructions {
+    for instruction in program.instructions.iter() {
         println!("{instruction:?}");
     }
+    println!();
+
+    let assembler = assembler::Assembler::new(program);
+    let program = assembler.assemble()?;
+
+    println!("Assembly:");
+    for instruction in program.instructions.iter() {
+        println!("{instruction:?}");
+    }
+    println!();
+
+    println!("Code:");
+    println!("{program}");
+    println!();
 
     Ok(())
 }

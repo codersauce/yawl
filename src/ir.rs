@@ -1,15 +1,18 @@
-use crate::parser::{Exp, Program, Statement};
+use crate::{
+    parser::{self, Exp, Statement},
+    Identifier,
+};
 
 pub struct IrGenerator {
-    pub program: Program,
+    pub program: parser::Program,
 }
 
 impl IrGenerator {
-    pub fn new(program: Program) -> IrGenerator {
+    pub fn new(program: parser::Program) -> IrGenerator {
         Self { program }
     }
 
-    pub fn generate(&mut self) -> anyhow::Result<Vec<Instruction>> {
+    pub fn generate(&mut self) -> anyhow::Result<Program> {
         let mut instructions = Vec::new();
         let mut context = Context::new();
 
@@ -19,8 +22,12 @@ impl IrGenerator {
             };
         }
 
-        Ok(instructions)
+        Ok(Program { instructions })
     }
+}
+
+pub struct Program {
+    pub instructions: Vec<Instruction>,
 }
 
 pub struct Context {
@@ -36,21 +43,6 @@ impl Context {
         let res = Identifier(format!("var_{}", self.next_num));
         self.next_num += 1;
         res
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Identifier(String);
-
-impl From<String> for Identifier {
-    fn from(value: String) -> Self {
-        Identifier(value)
-    }
-}
-
-impl From<&str> for Identifier {
-    fn from(value: &str) -> Self {
-        Identifier(value.to_string())
     }
 }
 
