@@ -73,6 +73,8 @@ impl From<ir::Program> for Program {
 
 impl fmt::Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "\t.globl main")?;
+        writeln!(f, "main:")?;
         for instr in &self.instructions {
             writeln!(f, "{}", instr)?
         }
@@ -161,10 +163,10 @@ impl From<ir::Val> for Operand {
 impl fmt::Display for Operand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Operand::Imm(val) => write!(f, "{val}"),
+            Operand::Imm(val) => write!(f, "${val}"),
             Operand::Pseudo(name) => unreachable!("attempt to serialize pseudo {name}"),
             Operand::Reg(reg) => write!(f, "{reg}"),
-            Operand::Stack(offset) => write!(f, "{offset}(%rbp)"),
+            Operand::Stack(offset) => write!(f, "{offset}(%rsp)"),
         }
     }
 }

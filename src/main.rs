@@ -75,5 +75,7 @@ fn main() -> anyhow::Result<()> {
     println!("{program}");
     println!();
 
+    fs::write("test.s", format!("{}", program))?;
+
     Ok(())
 }
