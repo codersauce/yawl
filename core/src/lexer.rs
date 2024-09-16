@@ -24,6 +24,10 @@ impl<'a> Lexer<'a> {
                 break;
             }
 
+            if self.skip_comments() {
+                continue;
+            }
+
             for token in Token::iter() {
                 if let Some(re) = token.regex() {
                     let re = Regex::new(re)?;
@@ -42,7 +46,7 @@ impl<'a> Lexer<'a> {
             }
 
             if !found {
-                anyhow::bail!("Unexpected token: {}", &self.source[self.pos..]);
+                anyhow::bail!("Unexpected token: {:?}", &self.source[self.pos..]);
             }
         }
 
@@ -56,6 +60,28 @@ impl<'a> Lexer<'a> {
             }
             self.pos += 1;
         }
+    }
+
+    fn skip_comments(&mut self) -> bool {
+        if let Some(ch) = self.source.chars().nth(self.pos) {
+            if ch == '/' {
+                self.pos += 1;
+                if let Some(ch) = self.source.chars().nth(self.pos) {
+                    if ch == '/' {
+                        self.pos += 2;
+                        // eat everything until \n
+                        while let Some(ch) = self.source.chars().nth(self.pos) {
+                            if ch == '\n' {
+                                return true;
+                            }
+                            self.pos += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        false
     }
 }
 
@@ -76,5 +102,30 @@ pub enum Token {
 impl Token {
     pub fn regex(&self) -> Option<&'static str> {
         self.get_str("regex")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn double_slash() {
+        let program = r#"
+        // comment
+        nVar := 1 // inline comment
+        "#;
+
+        let mut lexer = Lexer::new(program);
+        let tokens = lexer.tokenize().unwrap();
+
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Identifier("nVar".to_string()),
+                Token::ColonEqual,
+                Token::Int(1)
+            ]
+        );
     }
 }
