@@ -47,7 +47,7 @@ impl Program {
         let mut offset = 0;
         let mut var_offset_map = HashMap::new();
 
-        let instructions = self
+        let tmp_instructions = self
             .instructions
             .iter()
             .map(|inst| match inst {
@@ -58,6 +58,13 @@ impl Program {
                 _ => inst.clone(),
             })
             .collect::<Vec<_>>();
+
+        let mut instructions = Vec::new();
+        let aligned_stack_space = ((-offset + 15) / 16) * 16;
+
+        instructions.push(Instruction::AllocateStack(aligned_stack_space));
+        instructions.extend(tmp_instructions);
+        instructions.push(Instruction::DellocateStack(aligned_stack_space));
 
         Program { instructions }
     }
@@ -75,9 +82,13 @@ impl fmt::Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "\t.globl main")?;
         writeln!(f, "main:")?;
+        writeln!(f, "\tpushq\t%rbp")?;
+        writeln!(f, "\tmovq\t%rsp, %rbp")?;
         for instr in &self.instructions {
             writeln!(f, "{}", instr)?
         }
+        writeln!(f, "\tpopq\t%rbp")?;
+        writeln!(f, "\tret")?;
 
         Ok(())
     }
@@ -88,6 +99,8 @@ pub enum Instruction {
     Mov(Operand, Operand),
     Call(Identifier),
     Push(Operand),
+    AllocateStack(i32),
+    DellocateStack(i32),
 }
 
 impl fmt::Display for Instruction {
@@ -96,6 +109,8 @@ impl fmt::Display for Instruction {
             Instruction::Mov(src, dst) => write!(f, "\tmovl\t{src}, {dst}"),
             Instruction::Call(fn_name) => write!(f, "\tcall\t{fn_name}"),
             Instruction::Push(op) => write!(f, "\tpushl\t{op}"),
+            Instruction::AllocateStack(offset) => write!(f, "\tsubq\t${offset}, %rsp"),
+            Instruction::DellocateStack(offset) => write!(f, "\taddq\t${offset}, %rsp"),
         }
     }
 }
