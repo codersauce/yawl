@@ -1,4 +1,6 @@
-use std::{fmt, fs};
+use std::{fmt, fs, path::PathBuf, process::Command};
+
+use clap::Parser as _;
 
 use lexer::Lexer;
 use parser::Parser;
@@ -29,13 +31,17 @@ impl fmt::Display for Identifier {
     }
 }
 
-fn main() -> anyhow::Result<()> {
-    let program = r#"
-    nVar1 := 2
-    ERRORLEVEL(nVar1)
-    "#;
+#[derive(clap::Parser)]
+struct Args {
+    /// Source file to compile
+    source: PathBuf,
+}
 
-    let mut lexer = Lexer::new(program);
+fn main() -> anyhow::Result<()> {
+    let cli = Args::parse();
+    let program = fs::read_to_string(&cli.source)?;
+
+    let mut lexer = Lexer::new(&program);
     let tokens = lexer.tokenize()?;
 
     println!("Tokens:");
@@ -75,7 +81,40 @@ fn main() -> anyhow::Result<()> {
     println!("{program}");
     println!();
 
-    fs::write("test.s", format!("{}", program))?;
+    compile(&cli, &program)?;
+
+    Ok(())
+}
+
+fn compile(args: &Args, program: &assembler::Program) -> anyhow::Result<()> {
+    let file_name = args.source.with_extension("s");
+    let executable = &file_name.with_extension("");
+
+    // write the asm file
+    fs::write(&file_name, format!("{}", program))?;
+
+    // link it
+    let exit_status = Command::new("gcc")
+        .arg(&file_name)
+        .arg("-o")
+        .arg(executable)
+        .arg("-L./target/debug")
+        .arg("-l")
+        .arg("yawl_stdlib")
+        .status()?;
+
+    if !exit_status.success() {
+        panic!("Error linking: ${exit_status:?}");
+    }
+
+    // remove the temporary asm file
+    fs::remove_file(file_name)?;
+
+    println!(
+        "Compiled {} to {}",
+        &args.source.as_path().to_str().unwrap(),
+        &executable.as_path().to_str().unwrap()
+    );
 
     Ok(())
 }
