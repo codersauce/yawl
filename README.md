@@ -1,5 +1,9 @@
 # YAWL - Yet Another Wonderful Language
 
+<p align="center">
+  <img src="assets/logo.png" alt="YAWL Logo" />
+</p>
+
 [![Build Status](https://github.com/codersauce/yawl/actions/workflows/test.yml/badge.svg)](https://github.com/codersauce/yawl/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
