@@ -1,5 +1,8 @@
 # YAWL - Yet Another Wonderful Language
 
+[![Build Status](https://github.com/codersauce/yawl/actions/workflows/test.yml/badge.svg)](https://github.com/codersauce/yawl/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 YAWL is a Rust project with the ambition to become a CA-Clipper language compiler. This project showcases the learning experience of reimplementing the old compiler for the classic CA-Clipper language. It features a comprehensive pipeline including lexical analysis, parsing, intermediate representation (IR) generation, and assembly code production.
 
 **Note:** This project is currently in active development and may undergo significant changes. It is part of the YouTube series [_Rust Compiler for CA-Clipper_](https://www.youtube.com/playlist?list=PL9KpW-9Hl_hdAeo4tx_Td1aTJ7dzT_fx4), which documents the journey of building this compiler from scratch.
