@@ -129,6 +129,8 @@ pub enum Token {
     Or,
     #[strum(props(regex = r"^\.AND\."))]
     And,
+    #[strum(props(regex = r"^\.NOT\."))]
+    Not,
     #[strum(props(regex = r"^\*\*"))]
     StarStar,
     #[strum(props(regex = r"^%"))]
@@ -137,6 +139,16 @@ pub enum Token {
     Arrow,
     #[strum(props(regex = r"^\$"))]
     Dollar,
+    #[strum(props(regex = r"^&"))]
+    Ampersand,
+    #[strum(props(regex = r"^\+\+"))]
+    PlusPlus,
+    #[strum(props(regex = r"^--"))]
+    MinusMinus,
+    #[strum(props(regex = r"^@"))]
+    At,
+    #[strum(props(regex = r"^:"))]
+    Colon,
 }
 
 impl Token {
@@ -456,5 +468,52 @@ mod tests {
                 Token::Identifier("y".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn test_colon() {
+        let program = r#"myBrowse:pageUp()"#;
+        let mut lexer = Lexer::new(program);
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Identifier("myBrowse".to_string()),
+                Token::Colon,
+                Token::Identifier("pageUp".to_string()),
+                Token::OpenParens,
+                Token::CloseParens,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_minus_minus() {
+        let program = r#"--a"#;
+        let mut lexer = Lexer::new(program);
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(
+            tokens,
+            vec![Token::MinusMinus, Token::Identifier("a".to_string()),]
+        );
+    }
+
+    #[test]
+    fn test_not() {
+        let program = r#".NOT. a"#;
+        let mut lexer = Lexer::new(program);
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(
+            tokens,
+            vec![Token::Not, Token::Identifier("a".to_string()),]
+        );
+    }
+
+    #[test]
+    fn test_at() {
+        let program = r#"@a"#;
+        let mut lexer = Lexer::new(program);
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(tokens, vec![Token::At, Token::Identifier("a".to_string()),]);
     }
 }

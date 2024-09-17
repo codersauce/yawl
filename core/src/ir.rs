@@ -90,6 +90,7 @@ pub fn emit_ir(
 
             result
         }
+        Exp::Unary(_, _) => todo!(),
     };
 
     Ok(val)

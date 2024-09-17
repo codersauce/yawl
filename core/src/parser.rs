@@ -24,8 +24,9 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_exp(&mut self) -> anyhow::Result<Exp> {
-        let exp = match self.next_token()? {
+        let exp = match self.peek_token() {
             Some(Token::Identifier(name)) => {
+                self.take_token()?; // consumes identifier
                 if self.peek_token() == Some(Token::ColonEqual) {
                     self.parse_assignment(name)?
                 } else if self.peek_token() == Some(Token::OpenParens) {
@@ -34,9 +35,13 @@ impl<'a> Parser<'a> {
                     Exp::Var(name)
                 }
             }
-            Some(Token::Int(n)) => Exp::Constant(n),
-            Some(token) => {
-                anyhow::bail!("Expected expression, found {token:?}");
+            Some(Token::Int(n)) => {
+                self.take_token()?; // consumes int
+                Exp::Constant(n)
+            }
+            Some(_) => {
+                self.parse_unary()?
+                // anyhow::bail!("Expected expression, found {token:?}");
             }
             None => {
                 anyhow::bail!("Expected expression, found end of file");
@@ -68,6 +73,26 @@ impl<'a> Parser<'a> {
         self.expect(Token::CloseParens)?;
 
         Ok(Exp::FunCall(name, args))
+    }
+
+    fn parse_unary(&mut self) -> anyhow::Result<Exp> {
+        let operator = match self.next_token()? {
+            Some(Token::Not) => UnaryOperator::Not,
+            Some(token) => {
+                return Err(anyhow::anyhow!(
+                    "Expected unary operator, found {:?}",
+                    token
+                ));
+            }
+            None => {
+                return Err(anyhow::anyhow!(
+                    "Expected unary operator, found end of file"
+                ));
+            }
+        };
+
+        println!("creating unary with {operator:?}");
+        Ok(Exp::Unary(operator, Box::new(self.parse_exp()?)))
     }
 
     fn expect(&mut self, expected: Token) -> anyhow::Result<()> {
@@ -102,6 +127,7 @@ impl<'a> Parser<'a> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub statements: Vec<Statement>,
 }
@@ -112,15 +138,47 @@ impl Program {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     Expression(Exp),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Exp {
     Var(String),
     Constant(i32),
     Assignment(Box<Exp>, Box<Exp>),
     FunCall(String, Vec<Exp>),
+    Unary(UnaryOperator, Box<Exp>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum UnaryOperator {
+    Not,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::lexer::Lexer;
+
+    use super::*;
+
+    #[test]
+    fn unary_not() {
+        let program = r#".NOT. a"#;
+        let mut lexer = Lexer::new(program);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(&tokens);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(
+            program,
+            Program {
+                statements: vec![Statement::Expression(Exp::Unary(
+                    UnaryOperator::Not,
+                    Box::new(Exp::Var("a".into()))
+                ))]
+            }
+        );
+    }
 }
