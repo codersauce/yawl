@@ -40,7 +40,7 @@ impl<'a> Parser<'a> {
             Some(Token::Minus) => Some(BinaryOperator::Subtract),
             Some(Token::Star) => Some(BinaryOperator::Multiply),
             Some(Token::Slash) => Some(BinaryOperator::Divide),
-            Some(Token::StarStar) => Some(BinaryOperator::Exponent),
+            Some(Token::StarStar) | Some(Token::Caret) => Some(BinaryOperator::Exponent),
             Some(Token::Percent) => Some(BinaryOperator::Modulo),
             Some(Token::And) => Some(BinaryOperator::And),
             Some(Token::Or) => Some(BinaryOperator::Or),
@@ -65,7 +65,7 @@ impl<'a> Parser<'a> {
         let exp = match self.peek_token() {
             Some(Token::Identifier(name)) => {
                 self.take_token()?; // consumes identifier
-                if self.peek_token() == Some(Token::ColonEqual) {
+                if self.is_assignment() {
                     self.parse_assignment(name)?
                 } else if self.peek_token() == Some(Token::OpenParens) {
                     self.parse_fun_call(name)?
@@ -89,12 +89,77 @@ impl<'a> Parser<'a> {
         Ok(exp)
     }
 
+    fn is_assignment(&self) -> bool {
+        self.peek_token() == Some(Token::ColonEqual)
+            || self.peek_token() == Some(Token::PlusEqual)
+            || self.peek_token() == Some(Token::MinusEqual)
+            || self.peek_token() == Some(Token::StarEqual)
+            || self.peek_token() == Some(Token::SlashEqual)
+            || self.peek_token() == Some(Token::PercentEqual)
+            || self.peek_token() == Some(Token::CaretEqual)
+    }
+
     fn parse_assignment(&mut self, name: String) -> anyhow::Result<Exp> {
         let var = Exp::Var(name);
-        self.expect(Token::ColonEqual)?;
+        let Some(op) = self.next_token()? else {
+            anyhow::bail!("Expected assignment operator, found end of file");
+        };
         let exp = self.parse_exp()?;
 
-        Ok(Exp::Assignment(Box::new(var), Box::new(exp)))
+        match op {
+            Token::ColonEqual => Ok(Exp::Assignment(Box::new(var), Box::new(exp))),
+            Token::PlusEqual => Ok(Exp::Assignment(
+                Box::new(var.clone()),
+                Box::new(Exp::Binary(
+                    Box::new(var),
+                    BinaryOperator::Add,
+                    Box::new(exp),
+                )),
+            )),
+            Token::MinusEqual => Ok(Exp::Assignment(
+                Box::new(var.clone()),
+                Box::new(Exp::Binary(
+                    Box::new(var),
+                    BinaryOperator::Subtract,
+                    Box::new(exp),
+                )),
+            )),
+            Token::StarEqual => Ok(Exp::Assignment(
+                Box::new(var.clone()),
+                Box::new(Exp::Binary(
+                    Box::new(var),
+                    BinaryOperator::Multiply,
+                    Box::new(exp),
+                )),
+            )),
+            Token::SlashEqual => Ok(Exp::Assignment(
+                Box::new(var.clone()),
+                Box::new(Exp::Binary(
+                    Box::new(var),
+                    BinaryOperator::Divide,
+                    Box::new(exp),
+                )),
+            )),
+            Token::PercentEqual => Ok(Exp::Assignment(
+                Box::new(var.clone()),
+                Box::new(Exp::Binary(
+                    Box::new(var),
+                    BinaryOperator::Modulo,
+                    Box::new(exp),
+                )),
+            )),
+            Token::CaretEqual => Ok(Exp::Assignment(
+                Box::new(var.clone()),
+                Box::new(Exp::Binary(
+                    Box::new(var),
+                    BinaryOperator::Exponent,
+                    Box::new(exp),
+                )),
+            )),
+            _ => {
+                anyhow::bail!("Expected assignment operator, found {op:?}");
+            }
+        }
     }
 
     fn parse_fun_call(&mut self, name: String) -> anyhow::Result<Exp> {

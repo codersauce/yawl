@@ -109,6 +109,18 @@ pub enum Token {
     Slash,
     #[strum(props(regex = r"^="))]
     Equal,
+    #[strum(props(regex = r"^\+="))]
+    PlusEqual,
+    #[strum(props(regex = r"^-\="))]
+    MinusEqual,
+    #[strum(props(regex = r"^\*="))]
+    StarEqual,
+    #[strum(props(regex = r"^/="))]
+    SlashEqual,
+    #[strum(props(regex = r"^%="))]
+    PercentEqual,
+    #[strum(props(regex = r"^\^="))]
+    CaretEqual,
     #[strum(props(regex = r"^=="))]
     EqualEqual,
     #[strum(props(regex = r"^!="))]
@@ -133,6 +145,8 @@ pub enum Token {
     Not,
     #[strum(props(regex = r"^\*\*"))]
     StarStar,
+    #[strum(props(regex = r"^\^"))]
+    Caret,
     #[strum(props(regex = r"^%"))]
     Percent,
     #[strum(props(regex = r"^->"))]
@@ -441,6 +455,23 @@ mod tests {
     }
 
     #[test]
+    fn test_caret() {
+        let program = r#"m := a ^ b"#;
+        let mut lexer = Lexer::new(program);
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Identifier("m".to_string()),
+                Token::ColonEqual,
+                Token::Identifier("a".to_string()),
+                Token::Caret,
+                Token::Identifier("b".to_string()),
+            ]
+        );
+    }
+
+    #[test]
     fn test_arrow() {
         let program = r#"OBJ->FIELD"#;
         let mut lexer = Lexer::new(program);
@@ -483,6 +514,96 @@ mod tests {
                 Token::Identifier("pageUp".to_string()),
                 Token::OpenParens,
                 Token::CloseParens,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_compound_plus() {
+        let program = "a += 1";
+        let mut lexer = Lexer::new(program);
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Identifier("a".to_string()),
+                Token::PlusEqual,
+                Token::Int(1),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_compound_minus() {
+        let program = "a -= 1";
+        let mut lexer = Lexer::new(program);
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Identifier("a".to_string()),
+                Token::MinusEqual,
+                Token::Int(1),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_compound_star() {
+        let program = "a *= 1";
+        let mut lexer = Lexer::new(program);
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Identifier("a".to_string()),
+                Token::StarEqual,
+                Token::Int(1),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_compound_slash() {
+        let program = "a /= 1";
+        let mut lexer = Lexer::new(program);
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Identifier("a".to_string()),
+                Token::SlashEqual,
+                Token::Int(1),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_compound_percent() {
+        let program = "a %= 1";
+        let mut lexer = Lexer::new(program);
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Identifier("a".to_string()),
+                Token::PercentEqual,
+                Token::Int(1),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_compound_caret() {
+        let program = "a ^= 1";
+        let mut lexer = Lexer::new(program);
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Identifier("a".to_string()),
+                Token::CaretEqual,
+                Token::Int(1),
             ]
         );
     }
