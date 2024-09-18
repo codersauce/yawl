@@ -91,6 +91,7 @@ pub fn emit_ir(
             result
         }
         Exp::Unary(_, _) => todo!(),
+        Exp::Binary(_, _, _) => todo!(),
     };
 
     Ok(val)
