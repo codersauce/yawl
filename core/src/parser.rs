@@ -44,6 +44,7 @@ impl<'a> Parser<'a> {
             Some(Token::Percent) => Some(BinaryOperator::Modulo),
             Some(Token::And) => Some(BinaryOperator::And),
             Some(Token::Or) => Some(BinaryOperator::Or),
+            Some(Token::Equal) => Some(BinaryOperator::Equal),
             Some(Token::Less) => Some(BinaryOperator::LessThan),
             Some(Token::LessEqual) => Some(BinaryOperator::LessThanEqual),
             Some(Token::Greater) => Some(BinaryOperator::GreaterThan),
