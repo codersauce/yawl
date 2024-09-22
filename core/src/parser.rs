@@ -292,13 +292,10 @@ pub enum BinaryOperator {
     GreaterThanEqual,
     Equal,
     NotEqual,
-
     // TODO: implement those
-    SimpleAssign,
-    CompoundAssign,
-    SubstringComparison,
-    AliasAssignment,
-    Send,
+    // SubstringComparison,
+    // AliasAssignment,
+    // Send,
 }
 
 #[cfg(test)]
