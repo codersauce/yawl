@@ -161,7 +161,7 @@ impl Program {
 
         instructions.push(Instruction::AllocateStack(aligned_stack_space, None));
         instructions.extend(tmp_instructions);
-        instructions.push(Instruction::DellocateStack(aligned_stack_space, None));
+        instructions.push(Instruction::DeallocateStack(aligned_stack_space, None));
 
         Program { instructions }
     }
@@ -228,7 +228,7 @@ pub enum Instruction {
     Call(Identifier, Option<Span>),
     Push(Operand, Option<Span>),
     AllocateStack(i32, Option<Span>),
-    DellocateStack(i32, Option<Span>),
+    DeallocateStack(i32, Option<Span>),
     Binary(BinaryOperator, Operand, Operand, Option<Span>),
     Unary(UnaryOperator, Operand, Option<Span>),
     Cdq(Option<Span>),
@@ -243,7 +243,7 @@ impl Instruction {
             Instruction::Call(_, span) => *span,
             Instruction::Push(_, span) => *span,
             Instruction::AllocateStack(_, span) => *span,
-            Instruction::DellocateStack(_, span) => *span,
+            Instruction::DeallocateStack(_, span) => *span,
             Instruction::Binary(_, _, _, span) => *span,
             Instruction::Unary(_, _, span) => *span,
             Instruction::Cdq(span) => *span,
@@ -261,7 +261,7 @@ impl ToCode for Instruction {
             Instruction::Call(fn_name, _span) => write!(f, "\tcall\t{fn_name}"),
             Instruction::Push(op, _span) => write!(f, "\tpushl\t{op}"),
             Instruction::AllocateStack(offset, _span) => write!(f, "\tsubq\t${offset}, %rsp"),
-            Instruction::DellocateStack(offset, _span) => write!(f, "\taddq\t${offset}, %rsp"),
+            Instruction::DeallocateStack(offset, _span) => write!(f, "\taddq\t${offset}, %rsp"),
             Instruction::Binary(op, src1, src2, _span) => write!(f, "\t{op}\t{src1}, {src2}"),
             Instruction::Unary(op, src, _span) => write!(f, "\t{op}\t{src}"),
             Instruction::Cdq(_span) => write!(f, "\tcdq"),
@@ -295,9 +295,6 @@ impl From<ir::Instruction> for Vec<Instruction> {
                 result,
                 span: _,
             } => {
-                // TODO: do we need to provide the span here? I think it already comes from the
-                // declaration of the FunCall, prepended by the StackOnly but we need to
-                // doublecheck
                 let mut instructions = Vec::new();
 
                 let args = args.into_iter().map(Operand::from).collect::<Vec<_>>();
@@ -306,6 +303,11 @@ impl From<ir::Instruction> for Vec<Instruction> {
                 } else {
                     args.split_at(6)
                 };
+                let stack_padding = if stack_args.len() % 2 == 0 { 0 } else { 8 };
+
+                if stack_padding > 0 {
+                    instructions.push(Instruction::AllocateStack(stack_padding, None));
+                }
 
                 for (i, val) in register_args.iter().enumerate() {
                     instructions.push(Instruction::Mov(
@@ -326,6 +328,11 @@ impl From<ir::Instruction> for Vec<Instruction> {
                     result.into(),
                     None,
                 ));
+
+                let bytes_to_remove = 8 * stack_args.len() as i32 + stack_padding;
+                if bytes_to_remove > 0 {
+                    instructions.push(Instruction::DeallocateStack(bytes_to_remove, None));
+                }
 
                 instructions
             }
@@ -485,7 +492,7 @@ impl fmt::Display for Operand {
             Operand::Pseudo(name, _span) => unreachable!("attempt to serialize pseudo {name}"),
             Operand::Reg(reg, _span) => write!(f, "{reg}"),
             Operand::Reg8(reg, _span) => write!(f, "{reg}"),
-            Operand::Stack(offset, _span) => write!(f, "{offset}(%rsp)"),
+            Operand::Stack(offset, _span) => write!(f, "{offset}(%rbp)"),
         }
     }
 }
@@ -497,7 +504,7 @@ impl ToCode for Operand {
             Operand::Pseudo(name, _span) => unreachable!("attempt to serialize pseudo {name}"),
             Operand::Reg(reg, _span) => write!(f, "{reg}"),
             Operand::Reg8(reg, _span) => write!(f, "{reg}"),
-            Operand::Stack(offset, _span) => write!(f, "{offset}(%rsp)"),
+            Operand::Stack(offset, _span) => write!(f, "{offset}(%rbp)"),
         }
     }
 }

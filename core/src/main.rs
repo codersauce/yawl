@@ -63,6 +63,10 @@ impl Span {
 struct Args {
     /// Source file to compile
     source: PathBuf,
+
+    /// Keep the temporary assembly file
+    #[clap(short, long)]
+    keep_asm: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -136,7 +140,9 @@ fn compile(args: &Args, source: &str, program: &assembler::Program) -> anyhow::R
     }
 
     // remove the temporary asm file
-    fs::remove_file(file_name)?;
+    if !args.keep_asm {
+        fs::remove_file(file_name)?;
+    }
 
     println!(
         "Compiled {} to {}",
