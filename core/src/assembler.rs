@@ -14,6 +14,7 @@ impl Assembler {
     pub fn assemble(self) -> anyhow::Result<Program> {
         let program: Program = self.program.into();
         let program = program.replace_pseudoregisters();
+        let program = program.fixup_instructions();
 
         Ok(program)
     }
@@ -24,6 +25,52 @@ pub struct Program {
 }
 
 impl Program {
+    fn fixup_instructions(&self) -> Self {
+        fn fixup(src: Operand, dst: Operand) -> Vec<(Operand, Operand)> {
+            match (src, dst) {
+                (Operand::Stack(src), Operand::Stack(dst)) => {
+                    vec![
+                        (Operand::Stack(src), Operand::Reg(Reg::R10)),
+                        (Operand::Reg(Reg::R10), Operand::Stack(dst)),
+                    ]
+                }
+                (src, dst) => vec![(src, dst)],
+            }
+        }
+
+        let instructions = self
+            .instructions
+            .clone()
+            .into_iter()
+            .flat_map(|inst| match inst {
+                Instruction::Mov(src, dst) => {
+                    let pairs = fixup(src.clone(), dst.clone());
+                    pairs
+                        .into_iter()
+                        .map(|(src, dst)| Instruction::Mov(src, dst))
+                        .collect::<Vec<_>>()
+                }
+                Instruction::Binary(op, ref src, ref dst) => match op {
+                    BinaryOperator::Add | BinaryOperator::Sub => {
+                        let pairs = fixup(src.clone(), dst.clone());
+                        pairs
+                            .into_iter()
+                            .map(|(src, dst)| Instruction::Binary(op, src, dst))
+                            .collect::<Vec<_>>()
+                    }
+                    _ => vec![inst],
+                },
+                Instruction::Idiv(operand) => vec![
+                    Instruction::Mov(operand, Operand::Reg(Reg::R10)),
+                    Instruction::Idiv(Operand::Reg(Reg::R10)),
+                ],
+                _ => vec![inst],
+            })
+            .collect::<Vec<_>>();
+
+        Program { instructions }
+    }
+
     fn replace_pseudoregisters(&self) -> Self {
         fn handle_operand(
             operand: &Operand,
@@ -56,10 +103,13 @@ impl Program {
                     handle_operand(dst, &mut offset, &mut var_offset_map),
                 ),
                 Instruction::Binary(op, src1, src2) => Instruction::Binary(
-                    op.clone(),
+                    *op,
                     handle_operand(src1, &mut offset, &mut var_offset_map),
                     handle_operand(src2, &mut offset, &mut var_offset_map),
                 ),
+                Instruction::Unary(op, src) => {
+                    Instruction::Unary(*op, handle_operand(src, &mut offset, &mut var_offset_map))
+                }
                 _ => inst.clone(),
             })
             .collect::<Vec<_>>();
@@ -107,6 +157,7 @@ pub enum Instruction {
     AllocateStack(i32),
     DellocateStack(i32),
     Binary(BinaryOperator, Operand, Operand),
+    Unary(UnaryOperator, Operand),
     Cdq,
     Idiv(Operand),
 }
@@ -120,6 +171,7 @@ impl fmt::Display for Instruction {
             Instruction::AllocateStack(offset) => write!(f, "\tsubq\t${offset}, %rsp"),
             Instruction::DellocateStack(offset) => write!(f, "\taddq\t${offset}, %rsp"),
             Instruction::Binary(op, src1, src2) => write!(f, "\t{op}\t{src1}, {src2}"),
+            Instruction::Unary(op, src) => write!(f, "\t{op}\t{src}"),
             Instruction::Cdq => write!(f, "\tcdq"),
             Instruction::Idiv(op) => write!(f, "\tidivl\t{op}"),
         }
@@ -166,7 +218,12 @@ impl From<ir::Instruction> for Vec<Instruction> {
 
                 instructions
             }
-            ir::Instruction::Unary(_, _, _) => todo!(),
+            ir::Instruction::Unary(op, src, dst) => match op {
+                _ => vec![
+                    Instruction::Mov(src.into(), dst.clone().into()),
+                    Instruction::Unary(op.into(), dst.into()),
+                ],
+            },
             ir::Instruction::Binary(op, src1, src2, dst) => match op {
                 ir::BinaryOperator::Add
                 | ir::BinaryOperator::Subtract
@@ -204,7 +261,7 @@ impl From<ir::Instruction> for Vec<Instruction> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BinaryOperator {
     Add,
     Sub,
@@ -234,6 +291,28 @@ impl fmt::Display for BinaryOperator {
             BinaryOperator::Mul => write!(f, "imull"),
             BinaryOperator::And => write!(f, "andl"),
             BinaryOperator::Or => write!(f, "orl"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum UnaryOperator {
+    Neg,
+}
+
+impl From<ir::UnaryOperator> for UnaryOperator {
+    fn from(op: ir::UnaryOperator) -> Self {
+        match op {
+            ir::UnaryOperator::Negate => UnaryOperator::Neg,
+            _ => todo!(),
+        }
+    }
+}
+
+impl fmt::Display for UnaryOperator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UnaryOperator::Neg => write!(f, "negl"),
         }
     }
 }
@@ -277,6 +356,7 @@ pub enum Reg {
     SI,
     R8,
     R9,
+    R10,
 }
 
 impl fmt::Display for Reg {
@@ -289,6 +369,7 @@ impl fmt::Display for Reg {
             Reg::CX => write!(f, "%ecx"),
             Reg::R8 => write!(f, "%r8d"),
             Reg::R9 => write!(f, "%r9d"),
+            Reg::R10 => write!(f, "%r10d"),
         }
     }
 }

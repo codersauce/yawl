@@ -365,4 +365,15 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn negative() {
+        let program = "-1";
+        let mut lexer = Lexer::new(program);
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(&tokens);
+        let program = parser.parse().unwrap();
+
+        println!("{:?}", program);
+    }
 }
