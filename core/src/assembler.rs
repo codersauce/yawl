@@ -1,6 +1,9 @@
 use std::{collections::HashMap, fmt};
 
-use crate::{ir, Identifier, Span};
+use crate::{
+    ir::{self},
+    Identifier, Span,
+};
 
 pub struct Assembler {
     program: ir::Program,
@@ -26,37 +29,72 @@ pub struct Program {
 
 impl Program {
     fn fixup_instructions(&self) -> Self {
-        fn fixup(src: Operand, dst: Operand) -> Vec<(Operand, Operand)> {
-            match (src, dst) {
-                (Operand::Stack(src, src_span), Operand::Stack(dst, dst_span)) => {
-                    vec![
-                        (Operand::Stack(src, src_span), Operand::Reg(Reg::R10, None)),
-                        (Operand::Reg(Reg::R10, None), Operand::Stack(dst, dst_span)),
-                    ]
-                }
-                (src, dst) => vec![(src, dst)],
-            }
-        }
-
         let instructions = self
             .instructions
             .clone()
             .into_iter()
             .flat_map(|inst| match inst {
-                Instruction::Mov(src, dst, span) => {
-                    let pairs = fixup(src.clone(), dst.clone());
-                    pairs
-                        .into_iter()
-                        .map(|(src, dst)| Instruction::Mov(src, dst, span))
-                        .collect::<Vec<_>>()
-                }
-                Instruction::Binary(op, ref src, ref dst, span) => match op {
-                    BinaryOperator::Add | BinaryOperator::Sub => {
-                        let pairs = fixup(src.clone(), dst.clone());
-                        pairs
-                            .into_iter()
-                            .map(|(src, dst)| Instruction::Binary(op, src, dst, span))
-                            .collect::<Vec<_>>()
+                Instruction::Mov(src, dst, span) => match (src, dst) {
+                    (Operand::Stack(src, src_span), Operand::Stack(dst, dst_span)) => {
+                        vec![
+                            Instruction::Mov(
+                                Operand::Stack(src, src_span),
+                                Operand::Reg(Reg::R10, None),
+                                span,
+                            ),
+                            Instruction::Mov(
+                                Operand::Reg(Reg::R10, None),
+                                Operand::Stack(dst, dst_span),
+                                None,
+                            ),
+                        ]
+                    }
+                    (src, dst) => vec![Instruction::Mov(src, dst, span)],
+                },
+                Instruction::Binary(op, ref src, ref dst, span) => match (op, src, dst) {
+                    (
+                        BinaryOperator::Add,
+                        Operand::Stack(src, src_span),
+                        Operand::Stack(dst, dst_span),
+                    )
+                    | (
+                        BinaryOperator::Sub,
+                        Operand::Stack(src, src_span),
+                        Operand::Stack(dst, dst_span),
+                    ) => {
+                        vec![
+                            Instruction::Mov(
+                                Operand::Stack(*src, *src_span),
+                                Operand::Reg(Reg::R10, None),
+                                span,
+                            ),
+                            Instruction::Binary(
+                                op,
+                                Operand::Reg(Reg::R10, None),
+                                Operand::Stack(*dst, *dst_span),
+                                None,
+                            ),
+                        ]
+                    }
+                    (BinaryOperator::Mul, src, Operand::Stack(dst, dst_span)) => {
+                        vec![
+                            Instruction::Mov(
+                                Operand::Stack(*dst, *dst_span),
+                                Operand::Reg(Reg::R11, None),
+                                span,
+                            ),
+                            Instruction::Binary(
+                                op,
+                                src.clone(),
+                                Operand::Reg(Reg::R11, None),
+                                None,
+                            ),
+                            Instruction::Mov(
+                                Operand::Reg(Reg::R11, None),
+                                Operand::Stack(*dst, *dst_span),
+                                None,
+                            ),
+                        ]
                     }
                     _ => vec![inst],
                 },
@@ -474,6 +512,7 @@ pub enum Reg {
     R8,
     R9,
     R10,
+    R11,
 }
 
 impl fmt::Display for Reg {
@@ -487,6 +526,7 @@ impl fmt::Display for Reg {
             Reg::R8 => write!(f, "%r8d"),
             Reg::R9 => write!(f, "%r9d"),
             Reg::R10 => write!(f, "%r10d"),
+            Reg::R11 => write!(f, "%r11d"),
         }
     }
 }
