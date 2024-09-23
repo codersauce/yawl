@@ -1,6 +1,6 @@
 use crate::{
     parser::{self, Exp, Statement},
-    Identifier,
+    Identifier, Span,
 };
 
 pub struct IrGenerator {
@@ -17,8 +17,9 @@ impl IrGenerator {
         let mut context = Context::new();
 
         for st in &self.program.statements {
+            instructions.push(Instruction::SpanOnly(st.span()));
             match st {
-                Statement::Expression(exp) => emit_ir(exp, &mut instructions, &mut context)?,
+                Statement::Expression(exp, _span) => emit_ir(exp, &mut instructions, &mut context)?,
             };
         }
 
@@ -58,18 +59,20 @@ impl Context {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
-    Copy(Val, Val),
+    SpanOnly(Span),
+    Copy(Val, Val, Option<Span>),
     FunCall {
         name: Identifier,
         args: Vec<Val>,
         result: Val,
+        span: Option<Span>,
     },
-    Unary(UnaryOperator, Val, Val),
-    Binary(BinaryOperator, Val, Val, Val),
-    Label(Identifier),
-    Jump(Identifier),
-    JumpIfZero(Val, Identifier),
-    JumpIfNotZero(Val, Identifier),
+    Unary(UnaryOperator, Val, Val, Option<Span>),
+    Binary(BinaryOperator, Val, Val, Val, Option<Span>),
+    Label(Identifier, Option<Span>),
+    Jump(Identifier, Option<Span>),
+    JumpIfZero(Val, Identifier, Option<Span>),
+    JumpIfNotZero(Val, Identifier, Option<Span>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -138,8 +141,8 @@ impl From<parser::BinaryOperator> for BinaryOperator {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Val {
-    Constant(i32),
-    Var(Identifier),
+    Constant(i32, Option<Span>),
+    Var(Identifier, Option<Span>),
 }
 
 pub fn emit_ir(
@@ -148,37 +151,52 @@ pub fn emit_ir(
     context: &mut Context,
 ) -> anyhow::Result<Val> {
     let val = match exp {
-        Exp::Var(name) => Val::Var(name.to_string().into()),
-        Exp::Constant(val) => Val::Constant(*val),
-        Exp::Assignment(src, dst) => match src.as_ref() {
-            Exp::Var(name) => emit_assignment(name.clone(), dst.as_ref(), instructions, context)?,
+        Exp::Var(name, span) => Val::Var(name.to_string().into(), Some(*span)),
+        Exp::Constant(val, span) => Val::Constant(*val, Some(*span)),
+        Exp::Assignment(src, dst, assignment_span) => match src.as_ref() {
+            Exp::Var(name, _span) => emit_assignment(
+                name.clone(),
+                dst.as_ref(),
+                *assignment_span,
+                instructions,
+                context,
+            )?,
             _expr => todo!(),
         },
-        Exp::FunCall(name, args) => {
+        Exp::FunCall(name, args, span) => {
             let args = args
                 .iter()
                 .map(|arg| emit_ir(arg, instructions, context))
                 .collect::<anyhow::Result<Vec<Val>>>()?;
-            let result = Val::Var(context.next_var());
+            let result = Val::Var(context.next_var(), Some(*span));
             let name = Identifier(name.into());
 
             instructions.push(Instruction::FunCall {
                 name,
                 args,
                 result: result.clone(),
+                span: Some(*span),
             });
 
             result
         }
-        Exp::Unary(op, exp) => {
-            let result = Val::Var(context.next_var());
+        Exp::Unary(op, exp, span) => {
+            // TODO: Confirm what to do with items we generate
+            let result = Val::Var(context.next_var(), None);
             let exp = emit_ir(exp, instructions, context)?;
-            instructions.push(Instruction::Unary(op.clone().into(), exp, result.clone()));
+            instructions.push(Instruction::Unary(
+                op.clone().into(),
+                exp,
+                result.clone(),
+                Some(*span),
+            ));
             result
         }
-        Exp::Binary(exp1, op, exp2) => match op {
+        Exp::Binary(exp1, op, exp2, span) => match op {
             parser::BinaryOperator::Or => {
-                let dst = Val::Var(context.next_var());
+                instructions.push(Instruction::SpanOnly(*span));
+
+                let dst = Val::Var(context.next_var(), None);
 
                 let short_circuit_label = context.next_label("or_short_circuit");
                 let end_label = context.next_label("end_label");
@@ -188,6 +206,7 @@ pub fn emit_ir(
                 instructions.push(Instruction::JumpIfNotZero(
                     var1,
                     short_circuit_label.clone(),
+                    None,
                 ));
 
                 // if exp2 is true, jump to short_circuit (result = true)
@@ -195,48 +214,59 @@ pub fn emit_ir(
                 instructions.push(Instruction::JumpIfNotZero(
                     var2,
                     short_circuit_label.clone(),
+                    None,
                 ));
 
                 // false case
-                instructions.push(Instruction::Copy(Val::Constant(0), dst.clone()));
-                instructions.push(Instruction::Jump(end_label.clone()));
+                instructions.push(Instruction::Copy(Val::Constant(0, None), dst.clone(), None));
+                instructions.push(Instruction::Jump(end_label.clone(), None));
 
                 // short circuit case
-                instructions.push(Instruction::Label(short_circuit_label));
-                instructions.push(Instruction::Copy(Val::Constant(1), dst.clone()));
+                instructions.push(Instruction::Label(short_circuit_label, None));
+                instructions.push(Instruction::Copy(Val::Constant(1, None), dst.clone(), None));
 
-                instructions.push(Instruction::Label(end_label));
+                instructions.push(Instruction::Label(end_label, None));
 
                 dst
             }
             parser::BinaryOperator::And => {
-                let dst = Val::Var(context.next_var());
+                instructions.push(Instruction::SpanOnly(*span));
+
+                let dst = Val::Var(context.next_var(), None);
 
                 let short_circuit_label = context.next_label("or_short_circuit");
                 let end_label = context.next_label("end_label");
 
                 // if exp1 is false, jump to short_circuit (result = false)
                 let var1 = emit_ir(exp1, instructions, context)?;
-                instructions.push(Instruction::JumpIfZero(var1, short_circuit_label.clone()));
+                instructions.push(Instruction::JumpIfZero(
+                    var1,
+                    short_circuit_label.clone(),
+                    None,
+                ));
 
                 // if exp2 is false, jump to short_circuit (result = false)
                 let var2 = emit_ir(exp2, instructions, context)?;
-                instructions.push(Instruction::JumpIfZero(var2, short_circuit_label.clone()));
+                instructions.push(Instruction::JumpIfZero(
+                    var2,
+                    short_circuit_label.clone(),
+                    None,
+                ));
 
                 // true case
-                instructions.push(Instruction::Copy(Val::Constant(1), dst.clone()));
-                instructions.push(Instruction::Jump(end_label.clone()));
+                instructions.push(Instruction::Copy(Val::Constant(1, None), dst.clone(), None));
+                instructions.push(Instruction::Jump(end_label.clone(), None));
 
                 // short circuit case
-                instructions.push(Instruction::Label(short_circuit_label));
-                instructions.push(Instruction::Copy(Val::Constant(0), dst.clone()));
+                instructions.push(Instruction::Label(short_circuit_label, None));
+                instructions.push(Instruction::Copy(Val::Constant(0, None), dst.clone(), None));
 
-                instructions.push(Instruction::Label(end_label));
+                instructions.push(Instruction::Label(end_label, None));
 
                 dst
             }
             _ => {
-                let dst = Val::Var(context.next_var());
+                let dst = Val::Var(context.next_var(), None);
                 let exp1 = emit_ir(exp1, instructions, context)?;
                 let exp2 = emit_ir(exp2, instructions, context)?;
                 instructions.push(Instruction::Binary(
@@ -244,6 +274,7 @@ pub fn emit_ir(
                     exp1,
                     exp2,
                     dst.clone(),
+                    Some(*span),
                 ));
                 dst
             }
@@ -256,10 +287,15 @@ pub fn emit_ir(
 fn emit_assignment(
     var_name: String,
     exp: &Exp,
+    span: Span,
     instructions: &mut Vec<Instruction>,
     context: &mut Context,
 ) -> anyhow::Result<Val> {
     let val = emit_ir(exp, instructions, context)?;
-    instructions.push(Instruction::Copy(val.clone(), Val::Var(var_name.into())));
+    instructions.push(Instruction::Copy(
+        val.clone(),
+        Val::Var(var_name.into(), None),
+        Some(span),
+    ));
     Ok(val)
 }

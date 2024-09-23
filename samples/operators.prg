@@ -1,5 +1,6 @@
-nVar1 := 2 + 2
-nVar2 := 10 - nVar1
-// nVar3 := -nVar1
-// nVar4 := ++nVar2
-nVar1 /= 2
+nVar0 := -1 // -1
+nVar1 := 2 + 2 + nVar0 // 3
+ERRORLEVEL(nVar1)
+// nVar2 := 10 - nVar1 // 7
+// nVar2 /= 2 // 2.5
+

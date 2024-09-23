@@ -1,5 +1,6 @@
 use std::{fmt, fs, path::PathBuf, process::Command};
 
+use assembler::to_code;
 use clap::Parser as _;
 
 use lexer::Lexer;
@@ -31,6 +32,33 @@ impl fmt::Display for Identifier {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Span {
+    pub start: usize,
+    pub end: usize,
+}
+
+impl Span {
+    pub fn new(start: usize, end: usize) -> Span {
+        Span { start, end }
+    }
+
+    pub fn empty() -> Span {
+        Span { start: 0, end: 0 }
+    }
+
+    pub fn join(&self, other: &Span) -> Span {
+        Span {
+            start: self.start,
+            end: other.end,
+        }
+    }
+
+    pub fn value(&self, source: &str) -> String {
+        source[self.start..self.end].to_string()
+    }
+}
+
 #[derive(clap::Parser)]
 struct Args {
     /// Source file to compile
@@ -39,9 +67,9 @@ struct Args {
 
 fn main() -> anyhow::Result<()> {
     let cli = Args::parse();
-    let program = fs::read_to_string(&cli.source)?;
+    let source = fs::read_to_string(&cli.source)?;
 
-    let mut lexer = Lexer::new(&program);
+    let mut lexer = Lexer::new(&source);
     let tokens = lexer.tokenize()?;
 
     println!("Tokens:");
@@ -50,7 +78,7 @@ fn main() -> anyhow::Result<()> {
     }
     println!();
 
-    let mut parser = Parser::new(&tokens);
+    let mut parser = Parser::new(&source, &tokens);
     let program = parser.parse()?;
 
     println!("AST:");
@@ -78,20 +106,20 @@ fn main() -> anyhow::Result<()> {
     println!();
 
     println!("Code:");
-    println!("{program}");
+    println!("{}", to_code(&program, &source));
     println!();
 
-    compile(&cli, &program)?;
+    compile(&cli, &source, &program)?;
 
     Ok(())
 }
 
-fn compile(args: &Args, program: &assembler::Program) -> anyhow::Result<()> {
+fn compile(args: &Args, source: &str, program: &assembler::Program) -> anyhow::Result<()> {
     let file_name = args.source.with_extension("s");
     let executable = &file_name.with_extension("");
 
     // write the asm file
-    fs::write(&file_name, format!("{}", program))?;
+    fs::write(&file_name, format!("{}", to_code(program, source)))?;
 
     // link it
     let exit_status = Command::new("gcc")

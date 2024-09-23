@@ -1,12 +1,17 @@
-use crate::lexer::Token;
+use crate::{
+    lexer::{Token, TokenKind},
+    Span,
+};
 
+#[allow(unused)]
 pub struct Parser<'a> {
-    tokens: &'a [Token],
+    source: &'a str,
+    tokens: &'a [Token<'a>],
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(tokens: &'a [Token]) -> Parser<'a> {
-        Self { tokens }
+    pub fn new(source: &'a str, tokens: &'a [Token]) -> Parser<'a> {
+        Self { source, tokens }
     }
 
     pub fn parse(&mut self) -> anyhow::Result<Program> {
@@ -20,70 +25,79 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_statement(&mut self) -> anyhow::Result<Statement> {
-        Ok(Statement::Expression(self.parse_exp()?))
+        let (exp, span) = self.parse_exp()?;
+        Ok(Statement::Expression(exp, span))
     }
 
-    fn parse_exp(&mut self) -> anyhow::Result<Exp> {
+    fn parse_exp(&mut self) -> anyhow::Result<(Exp, Span)> {
         let left = self.parse_lhs()?;
 
-        if let Some(op) = self.parse_binary_operator()? {
-            let right = self.parse_exp()?;
-            return Ok(Exp::Binary(Box::new(left), op, Box::new(right)));
+        if let Some((op, _)) = self.parse_binary_operator()? {
+            let (right, right_span) = self.parse_exp()?;
+            let span = left.span().join(&right_span);
+            return Ok((Exp::Binary(Box::new(left), op, Box::new(right), span), span));
         }
 
-        Ok(left)
+        let span = left.span();
+        Ok((left, span))
     }
 
-    fn parse_binary_operator(&mut self) -> anyhow::Result<Option<BinaryOperator>> {
-        let res = match self.peek_token() {
-            Some(Token::Plus) => Some(BinaryOperator::Add),
-            Some(Token::Minus) => Some(BinaryOperator::Subtract),
-            Some(Token::Star) => Some(BinaryOperator::Multiply),
-            Some(Token::Slash) => Some(BinaryOperator::Divide),
-            Some(Token::StarStar) | Some(Token::Caret) => Some(BinaryOperator::Exponent),
-            Some(Token::Percent) => Some(BinaryOperator::Modulo),
-            Some(Token::And) => Some(BinaryOperator::And),
-            Some(Token::Or) => Some(BinaryOperator::Or),
-            Some(Token::Equal) => Some(BinaryOperator::Equal),
-            Some(Token::Less) => Some(BinaryOperator::LessThan),
-            Some(Token::LessEqual) => Some(BinaryOperator::LessThanEqual),
-            Some(Token::Greater) => Some(BinaryOperator::GreaterThan),
-            Some(Token::GreaterEqual) => Some(BinaryOperator::GreaterThanEqual),
-            Some(Token::LessGreater) | Some(Token::BangEqual) | Some(Token::Hash) => {
+    fn parse_binary_operator(&mut self) -> anyhow::Result<Option<(BinaryOperator, Span)>> {
+        let res = match self.peek_token().map(|t| t.kind) {
+            Some(TokenKind::Plus) => Some(BinaryOperator::Add),
+            Some(TokenKind::Minus) => Some(BinaryOperator::Subtract),
+            Some(TokenKind::Star) => Some(BinaryOperator::Multiply),
+            Some(TokenKind::Slash) => Some(BinaryOperator::Divide),
+            Some(TokenKind::StarStar) | Some(TokenKind::Caret) => Some(BinaryOperator::Exponent),
+            Some(TokenKind::Percent) => Some(BinaryOperator::Modulo),
+            Some(TokenKind::And) => Some(BinaryOperator::And),
+            Some(TokenKind::Or) => Some(BinaryOperator::Or),
+            Some(TokenKind::Equal) => Some(BinaryOperator::Equal),
+            Some(TokenKind::Less) => Some(BinaryOperator::LessThan),
+            Some(TokenKind::LessEqual) => Some(BinaryOperator::LessThanEqual),
+            Some(TokenKind::Greater) => Some(BinaryOperator::GreaterThan),
+            Some(TokenKind::GreaterEqual) => Some(BinaryOperator::GreaterThanEqual),
+            Some(TokenKind::LessGreater) | Some(TokenKind::BangEqual) | Some(TokenKind::Hash) => {
                 Some(BinaryOperator::NotEqual)
             }
             _ => None,
         };
 
         if res.is_some() {
-            self.take_token()?;
+            let token = self.take_token()?;
+            return Ok(Some((res.unwrap(), token.span)));
         }
 
-        Ok(res)
+        Ok(None)
     }
 
     fn parse_lhs(&mut self) -> anyhow::Result<Exp> {
-        let exp = match self.peek_token() {
-            Some(Token::Identifier(name)) => {
+        let Some(token) = self.peek_token() else {
+            anyhow::bail!("Expected expression, found end of file");
+        };
+
+        let kind = token.kind;
+        let left_span = token.span;
+        let exp = match &kind {
+            TokenKind::Identifier(name) => {
                 self.take_token()?; // consumes identifier
+                let kind = self.peek_token().map(|t| t.kind);
+
                 if self.is_assignment() {
-                    self.parse_assignment(name)?
-                } else if self.peek_token() == Some(Token::OpenParens) {
-                    self.parse_fun_call(name)?
+                    self.parse_assignment(name.to_string(), left_span)?
+                } else if kind == Some(TokenKind::OpenParens) {
+                    self.parse_fun_call(name.to_string(), left_span)?
                 } else {
-                    Exp::Var(name)
+                    Exp::Var(name.to_string(), left_span)
                 }
             }
-            Some(Token::Int(n)) => {
-                self.take_token()?; // consumes int
-                Exp::Constant(n)
+            TokenKind::Int(n) => {
+                let token = self.take_token()?; // consumes int
+                Exp::Constant(*n, token.span)
             }
-            Some(_) => {
+            _ => {
                 self.parse_unary_prefix()?
                 // anyhow::bail!("Expected expression, found {token:?}");
-            }
-            None => {
-                anyhow::bail!("Expected expression, found end of file");
             }
         };
 
@@ -91,145 +105,153 @@ impl<'a> Parser<'a> {
     }
 
     fn is_assignment(&self) -> bool {
-        self.peek_token() == Some(Token::ColonEqual)
-            || self.peek_token() == Some(Token::PlusEqual)
-            || self.peek_token() == Some(Token::MinusEqual)
-            || self.peek_token() == Some(Token::StarEqual)
-            || self.peek_token() == Some(Token::SlashEqual)
-            || self.peek_token() == Some(Token::PercentEqual)
-            || self.peek_token() == Some(Token::CaretEqual)
+        let token = self.peek_token().map(|t| t.kind);
+        token == Some(TokenKind::ColonEqual)
+            || token == Some(TokenKind::PlusEqual)
+            || token == Some(TokenKind::MinusEqual)
+            || token == Some(TokenKind::StarEqual)
+            || token == Some(TokenKind::SlashEqual)
+            || token == Some(TokenKind::PercentEqual)
+            || token == Some(TokenKind::CaretEqual)
     }
 
-    fn parse_assignment(&mut self, name: String) -> anyhow::Result<Exp> {
-        let var = Exp::Var(name);
-        let Some(op) = self.next_token()? else {
-            anyhow::bail!("Expected assignment operator, found end of file");
-        };
-        let exp = self.parse_exp()?;
+    fn parse_assignment(&mut self, name: String, name_span: Span) -> anyhow::Result<Exp> {
+        // TODO: verify spans
+        let var = Exp::Var(name, name_span);
+        let token = self.take_token()?;
+        let kind = token.kind;
+        let (exp, span) = self.parse_exp()?;
 
-        match op {
-            Token::ColonEqual => Ok(Exp::Assignment(Box::new(var), Box::new(exp))),
-            Token::PlusEqual => Ok(Exp::Assignment(
+        let span = var.span().join(&span);
+        match kind {
+            TokenKind::ColonEqual => Ok(Exp::Assignment(Box::new(var), Box::new(exp), span)),
+            TokenKind::PlusEqual => Ok(Exp::Assignment(
                 Box::new(var.clone()),
                 Box::new(Exp::Binary(
                     Box::new(var),
                     BinaryOperator::Add,
                     Box::new(exp),
+                    span,
                 )),
+                span,
             )),
-            Token::MinusEqual => Ok(Exp::Assignment(
+            TokenKind::MinusEqual => Ok(Exp::Assignment(
                 Box::new(var.clone()),
                 Box::new(Exp::Binary(
                     Box::new(var),
                     BinaryOperator::Subtract,
                     Box::new(exp),
+                    span,
                 )),
+                span,
             )),
-            Token::StarEqual => Ok(Exp::Assignment(
+            TokenKind::StarEqual => Ok(Exp::Assignment(
                 Box::new(var.clone()),
                 Box::new(Exp::Binary(
                     Box::new(var),
                     BinaryOperator::Multiply,
                     Box::new(exp),
+                    span,
                 )),
+                span,
             )),
-            Token::SlashEqual => Ok(Exp::Assignment(
+            TokenKind::SlashEqual => Ok(Exp::Assignment(
                 Box::new(var.clone()),
                 Box::new(Exp::Binary(
                     Box::new(var),
                     BinaryOperator::Divide,
                     Box::new(exp),
+                    span,
                 )),
+                span,
             )),
-            Token::PercentEqual => Ok(Exp::Assignment(
+            TokenKind::PercentEqual => Ok(Exp::Assignment(
                 Box::new(var.clone()),
                 Box::new(Exp::Binary(
                     Box::new(var),
                     BinaryOperator::Modulo,
                     Box::new(exp),
+                    span,
                 )),
+                span,
             )),
-            Token::CaretEqual => Ok(Exp::Assignment(
+            TokenKind::CaretEqual => Ok(Exp::Assignment(
                 Box::new(var.clone()),
                 Box::new(Exp::Binary(
                     Box::new(var),
                     BinaryOperator::Exponent,
                     Box::new(exp),
+                    span,
                 )),
+                span,
             )),
             _ => {
-                anyhow::bail!("Expected assignment operator, found {op:?}");
+                // TODO: Augment error with span
+                anyhow::bail!("Expected assignment operator, found {:?}", kind);
             }
         }
     }
 
-    fn parse_fun_call(&mut self, name: String) -> anyhow::Result<Exp> {
-        self.expect(Token::OpenParens)?;
+    fn parse_fun_call(&mut self, name: String, name_span: Span) -> anyhow::Result<Exp> {
+        self.expect(TokenKind::OpenParens)?;
 
         let mut args = Vec::new();
         loop {
-            args.push(self.parse_exp()?);
+            let (exp, _) = self.parse_exp()?;
+            args.push(exp);
 
-            if self.peek_token() == Some(Token::CloseParens) {
+            if self.peek_token().map(|t| t.kind) == Some(TokenKind::CloseParens) {
                 break;
             }
         }
-        self.expect(Token::CloseParens)?;
+        let token = self.expect(TokenKind::CloseParens)?;
+        let span = name_span.join(&token.span);
 
-        Ok(Exp::FunCall(name, args))
+        Ok(Exp::FunCall(name, args, span))
     }
 
     fn parse_unary_prefix(&mut self) -> anyhow::Result<Exp> {
-        let operator = match self.next_token()? {
-            Some(Token::Not) => UnaryOperator::Not,
-            Some(Token::And) => UnaryOperator::And,
-            Some(Token::Plus) => UnaryOperator::Positive,
-            Some(Token::Minus) => UnaryOperator::Negative,
-            Some(Token::PlusPlus) => UnaryOperator::Increment,
-            Some(Token::MinusMinus) => UnaryOperator::Decrement,
-            Some(Token::At) => UnaryOperator::Ref,
-            Some(token) => {
+        let token = self.take_token()?;
+        let span = token.span;
+        let operator = match token.kind {
+            TokenKind::Not => UnaryOperator::Not,
+            TokenKind::And => UnaryOperator::And,
+            TokenKind::Plus => UnaryOperator::Positive,
+            TokenKind::Minus => UnaryOperator::Negative,
+            TokenKind::PlusPlus => UnaryOperator::Increment,
+            TokenKind::MinusMinus => UnaryOperator::Decrement,
+            TokenKind::At => UnaryOperator::Ref,
+            token => {
                 return Err(anyhow::anyhow!(
                     "Expected unary operator, found {:?}",
                     token
                 ));
             }
-            None => {
-                return Err(anyhow::anyhow!(
-                    "Expected unary operator, found end of file"
-                ));
-            }
         };
 
-        println!("creating unary with {operator:?}");
-        Ok(Exp::Unary(operator, Box::new(self.parse_exp()?)))
+        let (exp, exp_span) = self.parse_exp()?;
+        let span = span.join(&exp_span);
+        Ok(Exp::Unary(operator, Box::new(exp), span))
     }
 
-    fn expect(&mut self, expected: Token) -> anyhow::Result<()> {
-        let Some(actual) = self.next_token()? else {
-            anyhow::bail!("Expected {expected:?}, found end of file");
-        };
-
+    fn expect(&mut self, expected: TokenKind) -> anyhow::Result<Token> {
+        let token = self.take_token()?;
+        let actual = token.kind.clone();
         if actual != expected {
             anyhow::bail!("Expected {expected:?}, found {actual:?}");
         }
 
-        Ok(())
-    }
-
-    fn next_token(&mut self) -> anyhow::Result<Option<Token>> {
-        let token = self.peek_token();
-        self.take_token()?;
         Ok(token)
     }
 
-    fn take_token(&mut self) -> anyhow::Result<()> {
+    fn take_token(&mut self) -> anyhow::Result<Token> {
         if self.tokens.is_empty() {
             anyhow::bail!("Premature end of file");
         }
 
+        let ret = self.tokens[0].clone();
         self.tokens = &self.tokens[1..];
-        Ok(())
+        Ok(ret)
     }
 
     fn peek_token(&self) -> Option<Token> {
@@ -250,17 +272,38 @@ impl Program {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
-    Expression(Exp),
+    Expression(Exp, Span),
+}
+
+impl Statement {
+    #[allow(unused)]
+    pub fn span(&self) -> Span {
+        let Statement::Expression(_, span) = self;
+        *span
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Exp {
-    Var(String),
-    Constant(i32),
-    Assignment(Box<Exp>, Box<Exp>),
-    FunCall(String, Vec<Exp>),
-    Unary(UnaryOperator, Box<Exp>),
-    Binary(Box<Exp>, BinaryOperator, Box<Exp>),
+    Var(String, Span),
+    Constant(i32, Span),
+    Assignment(Box<Exp>, Box<Exp>, Span),
+    FunCall(String, Vec<Exp>, Span),
+    Unary(UnaryOperator, Box<Exp>, Span),
+    Binary(Box<Exp>, BinaryOperator, Box<Exp>, Span),
+}
+
+impl Exp {
+    pub fn span(&self) -> Span {
+        match self {
+            Exp::Var(_, span) => *span,
+            Exp::Constant(_, span) => *span,
+            Exp::Assignment(_, _, span) => *span,
+            Exp::FunCall(_, _, span) => *span,
+            Exp::Unary(_, _, span) => *span,
+            Exp::Binary(_, _, _, span) => *span,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -306,74 +349,95 @@ mod tests {
 
     #[test]
     fn binary_subtraction() {
-        let program = r#"nVar2 := 10 - nVar1"#;
-        let mut lexer = Lexer::new(program);
+        let source = r#"nVar2 := 10 - nVar1"#;
+        let mut lexer = Lexer::new(source);
         let tokens = lexer.tokenize().unwrap();
-        let mut parser = Parser::new(&tokens);
+        let mut parser = Parser::new(source, &tokens);
         let program = parser.parse().unwrap();
 
-        assert_eq!(
-            program,
-            Program {
-                statements: vec![Statement::Expression(Exp::Assignment(
-                    Box::new(Exp::Var("nVar2".into())),
-                    Box::new(Exp::Binary(
-                        Box::new(Exp::Constant(10)),
-                        BinaryOperator::Subtract,
-                        Box::new(Exp::Var("nVar1".into()),)
-                    ))
-                ))]
-            }
-        );
+        let st = program.statements.first().unwrap();
+        assert_eq!(st.span().value(source), "nVar2 := 10 - nVar1");
+
+        let Statement::Expression(exp, _) = st;
+        assert_eq!(exp.span().value(source), "nVar2 := 10 - nVar1");
+
+        let Exp::Assignment(var, exp, _) = exp else {
+            panic!("Expected assignment, found {:?}", exp);
+        };
+        assert_eq!(var.span().value(source), "nVar2");
+        assert_eq!(exp.span().value(source), "10 - nVar1");
+
+        let Exp::Binary(left, op, right, _) = exp.as_ref() else {
+            panic!("Expected binary, found {:?}", exp);
+        };
+        assert_eq!(left.span().value(source), "10");
+        assert_eq!(op, &BinaryOperator::Subtract);
+        assert_eq!(right.span().value(source), "nVar1");
     }
 
     #[test]
-    fn binary_add() {
-        let program = r#"2 + 3"#;
-        let mut lexer = Lexer::new(program);
+    fn test_operators() {
+        let source = r#"
+        nVar0 := -1 // -1
+        nVar1 := 2 + 2 + nVar0 // 3
+        ERRORLEVEL(nVar1)
+        "#;
+
+        let mut lexer = Lexer::new(source);
         let tokens = lexer.tokenize().unwrap();
-        let mut parser = Parser::new(&tokens);
-        let program = parser.parse().unwrap();
-
-        assert_eq!(
-            program,
-            Program {
-                statements: vec![Statement::Expression(Exp::Binary(
-                    Box::new(Exp::Constant(2)),
-                    BinaryOperator::Add,
-                    Box::new(Exp::Constant(3)),
-                ))]
-            }
-        );
-    }
-
-    #[test]
-    fn unary_not() {
-        let program = r#".NOT. a"#;
-        let mut lexer = Lexer::new(program);
-        let tokens = lexer.tokenize().unwrap();
-        let mut parser = Parser::new(&tokens);
-        let program = parser.parse().unwrap();
-
-        assert_eq!(
-            program,
-            Program {
-                statements: vec![Statement::Expression(Exp::Unary(
-                    UnaryOperator::Not,
-                    Box::new(Exp::Var("a".into()))
-                ))]
-            }
-        );
-    }
-
-    #[test]
-    fn negative() {
-        let program = "-1";
-        let mut lexer = Lexer::new(program);
-        let tokens = lexer.tokenize().unwrap();
-        let mut parser = Parser::new(&tokens);
+        let mut parser = Parser::new(source, &tokens);
         let program = parser.parse().unwrap();
 
         println!("{:?}", program);
     }
+
+    //     #[test]
+    //     fn binary_add() {
+    //         let program = r#"2 + 3"#;
+    //         let mut lexer = Lexer::new(program);
+    //         let tokens = lexer.tokenize().unwrap();
+    //         let mut parser = Parser::new(program, &tokens);
+    //         let program = parser.parse().unwrap();
+    //
+    //         assert_eq!(
+    //             program,
+    //             Program {
+    //                 statements: vec![Statement::Expression(Exp::Binary(
+    //                     Box::new(Exp::Constant(2)),
+    //                     BinaryOperator::Add,
+    //                     Box::new(Exp::Constant(3)),
+    //                 ))]
+    //             }
+    //         );
+    //     }
+    //
+    //     #[test]
+    //     fn unary_not() {
+    //         let program = r#".NOT. a"#;
+    //         let mut lexer = Lexer::new(program);
+    //         let tokens = lexer.tokenize().unwrap();
+    //         let mut parser = Parser::new(program, &tokens);
+    //         let program = parser.parse().unwrap();
+    //
+    //         assert_eq!(
+    //             program,
+    //             Program {
+    //                 statements: vec![Statement::Expression(Exp::Unary(
+    //                     UnaryOperator::Not,
+    //                     Box::new(Exp::Var("a".into()))
+    //                 ))]
+    //             }
+    //         );
+    //     }
+    //
+    //     #[test]
+    //     fn negative() {
+    //         let program = "-1";
+    //         let mut lexer = Lexer::new(program);
+    //         let tokens = lexer.tokenize().unwrap();
+    //         let mut parser = Parser::new(program, &tokens);
+    //         let program = parser.parse().unwrap();
+    //
+    //         println!("{:?}", program);
+    //     }
 }
