@@ -55,6 +55,11 @@ impl Program {
                     handle_operand(src, &mut offset, &mut var_offset_map),
                     handle_operand(dst, &mut offset, &mut var_offset_map),
                 ),
+                Instruction::Binary(op, src1, src2) => Instruction::Binary(
+                    op.clone(),
+                    handle_operand(src1, &mut offset, &mut var_offset_map),
+                    handle_operand(src2, &mut offset, &mut var_offset_map),
+                ),
                 _ => inst.clone(),
             })
             .collect::<Vec<_>>();
@@ -101,6 +106,9 @@ pub enum Instruction {
     Push(Operand),
     AllocateStack(i32),
     DellocateStack(i32),
+    Binary(BinaryOperator, Operand, Operand),
+    Cdq,
+    Idiv(Operand),
 }
 
 impl fmt::Display for Instruction {
@@ -111,6 +119,9 @@ impl fmt::Display for Instruction {
             Instruction::Push(op) => write!(f, "\tpushl\t{op}"),
             Instruction::AllocateStack(offset) => write!(f, "\tsubq\t${offset}, %rsp"),
             Instruction::DellocateStack(offset) => write!(f, "\taddq\t${offset}, %rsp"),
+            Instruction::Binary(op, src1, src2) => write!(f, "\t{op}\t{src1}, {src2}"),
+            Instruction::Cdq => write!(f, "\tcdq"),
+            Instruction::Idiv(op) => write!(f, "\tidivl\t{op}"),
         }
     }
 }
@@ -155,6 +166,74 @@ impl From<ir::Instruction> for Vec<Instruction> {
 
                 instructions
             }
+            ir::Instruction::Unary(_, _, _) => todo!(),
+            ir::Instruction::Binary(op, src1, src2, dst) => match op {
+                ir::BinaryOperator::Add
+                | ir::BinaryOperator::Subtract
+                | ir::BinaryOperator::Multiply
+                | ir::BinaryOperator::Exponent => vec![
+                    Instruction::Mov(src1.into(), dst.clone().into()),
+                    Instruction::Binary(op.into(), src2.into(), dst.into()),
+                ],
+                ir::BinaryOperator::Divide => vec![
+                    Instruction::Mov(src1.into(), Operand::Reg(Reg::AX)),
+                    Instruction::Cdq,
+                    Instruction::Idiv(src2.into()),
+                    Instruction::Mov(Operand::Reg(Reg::AX), dst.into()),
+                ],
+                ir::BinaryOperator::Modulo => vec![
+                    Instruction::Mov(src1.into(), Operand::Reg(Reg::AX)),
+                    Instruction::Cdq,
+                    Instruction::Idiv(src2.into()),
+                    Instruction::Mov(Operand::Reg(Reg::DX), dst.into()),
+                ],
+                ir::BinaryOperator::And => todo!(),
+                ir::BinaryOperator::Or => todo!(),
+                ir::BinaryOperator::LessThan => todo!(),
+                ir::BinaryOperator::LessThanEqual => todo!(),
+                ir::BinaryOperator::GreaterThan => todo!(),
+                ir::BinaryOperator::GreaterThanEqual => todo!(),
+                ir::BinaryOperator::Equal => todo!(),
+                ir::BinaryOperator::NotEqual => todo!(),
+            },
+            ir::Instruction::Label(_) => todo!(),
+            ir::Instruction::Jump(_) => todo!(),
+            ir::Instruction::JumpIfZero(_, _) => todo!(),
+            ir::Instruction::JumpIfNotZero(_, _) => todo!(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BinaryOperator {
+    Add,
+    Sub,
+    Mul,
+    And,
+    Or,
+}
+
+impl From<ir::BinaryOperator> for BinaryOperator {
+    fn from(op: ir::BinaryOperator) -> Self {
+        match op {
+            ir::BinaryOperator::Add => BinaryOperator::Add,
+            ir::BinaryOperator::Subtract => BinaryOperator::Sub,
+            ir::BinaryOperator::Multiply => BinaryOperator::Mul,
+            ir::BinaryOperator::And => BinaryOperator::And,
+            ir::BinaryOperator::Or => BinaryOperator::Or,
+            _ => todo!(),
+        }
+    }
+}
+
+impl fmt::Display for BinaryOperator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BinaryOperator::Add => write!(f, "addl"),
+            BinaryOperator::Sub => write!(f, "subl"),
+            BinaryOperator::Mul => write!(f, "imull"),
+            BinaryOperator::And => write!(f, "andl"),
+            BinaryOperator::Or => write!(f, "orl"),
         }
     }
 }
@@ -164,6 +243,7 @@ pub enum Operand {
     Imm(i32),
     Pseudo(Identifier),
     Reg(Reg),
+    Reg8(Reg8),
     Stack(i32),
 }
 
@@ -182,6 +262,7 @@ impl fmt::Display for Operand {
             Operand::Imm(val) => write!(f, "${val}"),
             Operand::Pseudo(name) => unreachable!("attempt to serialize pseudo {name}"),
             Operand::Reg(reg) => write!(f, "{reg}"),
+            Operand::Reg8(reg) => write!(f, "{reg}"),
             Operand::Stack(offset) => write!(f, "{offset}(%rsp)"),
         }
     }
@@ -190,10 +271,10 @@ impl fmt::Display for Operand {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Reg {
     AX,
+    CX,
+    DX,
     DI,
     SI,
-    DX,
-    CX,
     R8,
     R9,
 }
@@ -208,6 +289,32 @@ impl fmt::Display for Reg {
             Reg::CX => write!(f, "%ecx"),
             Reg::R8 => write!(f, "%r8d"),
             Reg::R9 => write!(f, "%r9d"),
+        }
+    }
+}
+
+#[allow(clippy::upper_case_acronyms)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum Reg8 {
+    AL,
+    CL,
+    DL,
+    DIL,
+    SIL,
+    R8B,
+    R9B,
+}
+
+impl fmt::Display for Reg8 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Reg8::AL => write!(f, "%al"),
+            Reg8::CL => write!(f, "%cl"),
+            Reg8::DL => write!(f, "%dl"),
+            Reg8::DIL => write!(f, "%dil"),
+            Reg8::SIL => write!(f, "%sil"),
+            Reg8::R8B => write!(f, "%r8b"),
+            Reg8::R9B => write!(f, "%r9b"),
         }
     }
 }
