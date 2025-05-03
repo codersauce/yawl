@@ -214,7 +214,16 @@ impl fmt::Display for Instruction {
         // The Program's fmt method will handle architecture-specific formatting
         match self {
             Instruction::Mov(src, dst) => write!(f, "\tmovl\t{src}, {dst}"),
-            Instruction::Call(fn_name) => write!(f, "\tcall\t_{fn_name}"),
+            Instruction::Call(fn_name) => {
+                #[cfg(target_os = "macos")]
+                {
+                    write!(f, "\tcall\t_{fn_name}")
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    write!(f, "\tcall\t{fn_name}")
+                }
+            },
             Instruction::Push(op) => write!(f, "\tpushl\t{op}"),
             Instruction::AllocateStack(offset) => write!(f, "\tsubq\t${offset}, %rsp"),
             Instruction::DellocateStack(offset) => write!(f, "\taddq\t${offset}, %rsp"),
@@ -259,7 +268,16 @@ pub fn format_arm64_instruction(instr: &Instruction, f: &mut fmt::Formatter<'_>)
                 write!(f, "\tmov\t{}, {}", arm64_operand(dst), arm64_operand(src))
             }
         },
-        Instruction::Call(fn_name) => write!(f, "\tbl\t_{}", fn_name),
+        Instruction::Call(fn_name) => {
+            #[cfg(target_os = "macos")]
+            {
+                write!(f, "\tbl\t_{fn_name}")
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                write!(f, "\tbl\t{fn_name}")
+            }
+        },
         Instruction::Push(op) => write!(f, "\tstr\t{}, [sp, #-16]!", arm64_operand(op)),
         Instruction::AllocateStack(offset) => write!(f, "\tsub\tsp, sp, #{}", offset),
         Instruction::DellocateStack(offset) => write!(f, "\tadd\tsp, sp, #{}", offset),

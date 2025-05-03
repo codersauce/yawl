@@ -143,52 +143,25 @@ fn compile(args: &Args, program: &assembler::Program, target_arch: Architecture)
        .arg("-o")
        .arg(executable);
     
-    // Instead of using the Rust standard library, use a simple C implementation
-    // Compile the stdlib.c file for the specific architecture
-    let object_file = match target_arch {
-        Architecture::X86_64 => "./stdlib_x86_64.o",
-        Architecture::ARM64 => "./stdlib_arm64.o",
-    };
-    
-    // Build with the appropriate architecture
-    let mut compile_cmd = Command::new("gcc");
-    compile_cmd.arg("-c")
-              .arg("./stdlib.c")
-              .arg("-o")
-              .arg(object_file);
-              
-    // Add architecture flags if cross-compiling
+    // Add architecture-specific flags and library paths
     match target_arch {
         Architecture::X86_64 => {
-            if cfg!(target_arch = "aarch64") {
-                compile_cmd.arg("-arch").arg("x86_64");
-            }
-        },
-        Architecture::ARM64 => {
-            if cfg!(target_arch = "x86_64") {
-                compile_cmd.arg("-arch").arg("arm64");
-            }
-        }
-    }
-    
-    // Compile the stdlib
-    let compile_status = compile_cmd.status()?;
-    if !compile_status.success() {
-        panic!("Failed to compile stdlib.c for {:?}", target_arch);
-    }
-    
-    // Add the compiled object file to the linking
-    cmd.arg(object_file);
-    
-    // Set architecture if cross-compiling
-    match target_arch {
-        Architecture::X86_64 => {
+            // X86_64-specific library path
+            cmd.arg("-L./target/x86_64-apple-darwin/debug/deps")
+               .arg("-l")
+               .arg("yawl_stdlib");
+            
             if cfg!(target_arch = "aarch64") {
                 // Cross-compile to x86_64 if we're on ARM
                 cmd.arg("-arch").arg("x86_64");
             }
         },
         Architecture::ARM64 => {
+            // ARM64-specific library path
+            cmd.arg("-L./target/aarch64-apple-darwin/debug/deps")
+               .arg("-l")
+               .arg("yawl_stdlib");
+            
             if cfg!(target_arch = "x86_64") {
                 // Cross-compile to ARM64 if we're on x86_64
                 cmd.arg("-arch").arg("arm64");
