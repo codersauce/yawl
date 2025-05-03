@@ -1,5 +1,5 @@
 use crate::{
-    parser::{self, Exp, Statement},
+    parser::{self, BinaryOperator, Exp, Statement, UnaryOperator},
     Identifier,
 };
 
@@ -54,6 +54,17 @@ pub enum Instruction {
         args: Vec<Val>,
         result: Val,
     },
+    BinaryOp {
+        left: Val,
+        op: BinaryOperator,
+        right: Val,
+        result: Val,
+    },
+    UnaryOp {
+        op: UnaryOperator,
+        operand: Val,
+        result: Val,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -90,8 +101,8 @@ pub fn emit_ir(
 
             result
         }
-        Exp::Unary(_, _) => todo!(),
-        Exp::Binary(_, _, _) => todo!(),
+        Exp::Unary(op, expr) => emit_unary_op(op.clone(), expr, instructions, context)?,
+        Exp::Binary(left, op, right) => emit_binary_op(left, op.clone(), right, instructions, context)?,
     };
 
     Ok(val)
@@ -106,4 +117,43 @@ fn emit_assignment(
     let val = emit_ir(exp, instructions, context)?;
     instructions.push(Instruction::Copy(val.clone(), Val::Var(var_name.into())));
     Ok(val)
+}
+
+fn emit_binary_op(
+    left: &Exp,
+    op: BinaryOperator,
+    right: &Exp,
+    instructions: &mut Vec<Instruction>,
+    context: &mut Context,
+) -> anyhow::Result<Val> {
+    let left_val = emit_ir(left, instructions, context)?;
+    let right_val = emit_ir(right, instructions, context)?;
+    let result = Val::Var(context.next_var());
+    
+    instructions.push(Instruction::BinaryOp {
+        left: left_val,
+        op,
+        right: right_val,
+        result: result.clone(),
+    });
+    
+    Ok(result)
+}
+
+fn emit_unary_op(
+    op: UnaryOperator,
+    expr: &Exp,
+    instructions: &mut Vec<Instruction>,
+    context: &mut Context,
+) -> anyhow::Result<Val> {
+    let operand_val = emit_ir(expr, instructions, context)?;
+    let result = Val::Var(context.next_var());
+    
+    instructions.push(Instruction::UnaryOp {
+        op,
+        operand: operand_val,
+        result: result.clone(),
+    });
+    
+    Ok(result)
 }
